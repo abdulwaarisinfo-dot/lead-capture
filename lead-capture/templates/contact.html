@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Get in Touch</title>
+  <style>
+    body {
+      font-family: -apple-system, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: #1e293b;
+      padding: 32px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    p.sub { color: #94a3b8; margin-top: 0; margin-bottom: 20px; font-size: 14px; }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #e2e8f0;
+      box-sizing: border-box;
+      font-family: inherit;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #6366f1;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #4f46e5; }
+    #status { margin-top: 14px; font-size: 14px; min-height: 20px; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Get in Touch</h1>
+    <p class="sub">Send a message — it's saved straight to the database.</p>
+    <form id="contact-form">
+      <input type="text" id="name" placeholder="Your name" required>
+      <input type="email" id="email" placeholder="Your email" required>
+      <textarea id="message" rows="4" placeholder="Your message" required></textarea>
+      <button type="submit">Send</button>
+    </form>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    document.getElementById("contact-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const statusEl = document.getElementById("status");
+      statusEl.textContent = "Sending...";
+      statusEl.className = "";
+
+      const payload = {
+        name: document.getElementById("name").value,
+        email: document.getElementById("email").value,
+        message: document.getElementById("message").value,
+      };
+
+      try {
+        const res = await fetch("/api/contact", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusEl.textContent = "✓ Thanks! Your message was received.";
+          statusEl.className = "ok";
+          document.getElementById("contact-form").reset();
+        } else {
+          statusEl.textContent = "Error: " + data.error;
+          statusEl.className = "err";
+        }
+      } catch (err) {
+        statusEl.textContent = "Something went wrong. Please try again.";
+        statusEl.className = "err";
+      }
+    });
+  </script>
+</body>
+</html>
