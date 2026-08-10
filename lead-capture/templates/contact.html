@@ -2,7 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Get in Touch</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Get in Touch — Lead Capture</title>
+  <meta name="description" content="Send a message and it's saved instantly to a live database. A minimal, working contact form built with FastAPI and MongoDB.">
+
+  <!-- Open Graph / social-share preview (WhatsApp, Facebook, LinkedIn, etc.) -->
+  <meta property="og:title" content="Get in Touch — Lead Capture">
+  <meta property="og:description" content="Send a message and it's saved instantly to a live database.">
+  <meta property="og:type" content="website">
+
+  <!-- Twitter/X card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Get in Touch — Lead Capture">
+  <meta name="twitter:description" content="Send a message and it's saved instantly to a live database.">
   <style>
     body {
       font-family: -apple-system, sans-serif;
@@ -58,7 +71,7 @@
     <form id="contact-form">
       <input type="text" id="name" placeholder="Your name" required>
       <input type="email" id="email" placeholder="Your email" required>
-      <textarea id="message" rows="4" placeholder="Your message" required></textarea>
+      <textarea id="message" rows="4" maxlength="1000" placeholder="Your message (max 1000 characters)" required></textarea>
       <button type="submit">Send</button>
     </form>
     <div id="status"></div>
@@ -68,7 +81,15 @@
     document.getElementById("contact-form").addEventListener("submit", async function (e) {
       e.preventDefault();
       const statusEl = document.getElementById("status");
-      statusEl.textContent = "Sending...";
+      const submitBtn = e.target.querySelector("button[type=submit]");
+
+      // Prevent double/rapid submits from creating duplicate entries —
+      // disable the button the instant Send is clicked, and only
+      // re-enable it once this request has actually finished.
+      if (submitBtn.disabled) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending...";
+      statusEl.textContent = "";
       statusEl.className = "";
 
       const payload = {
@@ -95,6 +116,9 @@
       } catch (err) {
         statusEl.textContent = "Something went wrong. Please try again.";
         statusEl.className = "err";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send";
       }
     });
   </script>
