@@ -21,11 +21,12 @@ Run:
 import os
 import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from pymongo import MongoClient
+from typing import Optional
 
 load_dotenv()
 
@@ -69,21 +70,45 @@ def home(request: Request):
 @app.post("/api/contact")
 def api_contact(req: ContactRequest):
     """Saves a real visitor submission into MongoDB — this is the whole feature."""
-    if not req.name.strip() or not req.email.strip() or not req.message.strip():
+    name = req.name.strip()
+    email = req.email.strip()
+    message = req.message.strip()
+
+    if not name or not email or not message:
         return {"success": False, "error": "Please fill in all fields."}
 
+    # Server-side length limits — the frontend has a maxlength too, but that
+    # can be bypassed by anyone calling this endpoint directly (e.g. curl),
+    # so the real limit has to be enforced here.
+    if len(name) > 200:
+        return {"success": False, "error": "Name is too long (max 200 characters)."}
+    if len(message) > 1000:
+        return {"success": False, "error": "Message is too long (max 1000 characters)."}
+
     leads.insert_one({
-        "name": req.name.strip(),
-        "email": req.email.strip(),
-        "message": req.message.strip(),
+        "name": name,
+        "email": email,
+        "message": message,
         "submitted_at": datetime.datetime.utcnow(),
     })
     return {"success": True}
 
 
+ADMIN_KEY = os.getenv("ADMIN_KEY")  # set this in your environment — no default, so it fails closed
+
+
 @app.get("/api/leads")
-def api_leads():
-    """Simple read-back endpoint so you can verify submissions arrived —
-    this is what you'll check to prove a real submission reached you."""
+def api_leads(x_admin_key: Optional[str] = Header(None)):
+    """
+    Read-back endpoint to verify submissions arrived. Protected by a simple
+    shared-secret header, since this returns every visitor's name, email,
+    and message — without this check, anyone who found the URL could read
+    everyone's submitted data.
+
+    Usage: curl -H "X-Admin-Key: <your key>" https://.../api/leads
+    """
+    if not ADMIN_KEY or x_admin_key != ADMIN_KEY:
+        return JSONResponse(status_code=401, content={"success": False, "error": "Unauthorized"})
+
     docs = list(leads.find({}, {"_id": 0}).sort("submitted_at", -1))
     return {"count": len(docs), "leads": docs}
