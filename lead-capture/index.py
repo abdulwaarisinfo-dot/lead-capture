@@ -10,13 +10,12 @@ New this week (Week 7 — LLM behind the API):
                              using an LLM, returns clean validated JSON
 
 Setup:
-    pip install fastapi uvicorn jinja2 pymongo python-dotenv openai pydantic --break-system-packages
+    pip install fastapi uvicorn jinja2 pymongo python-dotenv anthropic pydantic --break-system-packages
 
 Put your keys in a .env file:
     MONGODB_URI=mongodb+srv://.....
-    LLM_BASE_URL=https://openrouter.ai/api/v1      (or http://localhost:11434/v1/ for Ollama)
-    LLM_API_KEY=sk-...                              (or the literal string "ollama")
-    LLM_MODEL=openrouter/free                       (or gemma3:1b)
+    ANTHROPIC_API_KEY=sk-ant-...                    (from console.anthropic.com)
+    LLM_MODEL=claude-haiku-4-5-20251001
     LLM_STUB=1                                      (1 = no real model calls, for local dev)
     LLM_ENABLED=true                                (false = kill switch, always returns fallback)
     ADMIN_KEY=some-secret-you-pick
@@ -37,7 +36,7 @@ from pydantic import BaseModel, Field, ValidationError
 from pymongo import MongoClient
 from typing import Optional
 
-from openai import APITimeoutError
+from anthropic import APITimeoutError
 
 from llm.client import classify_message, PROMPT_VERSION
 from llm.schema import TriageResult
