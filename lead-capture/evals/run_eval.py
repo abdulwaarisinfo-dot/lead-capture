@@ -1,19 +1,21 @@
 """
-Runs evals/cases.json against the running /api/triage endpoint and prints a
-score on the `category` field. Requires the server to be running:
+Runs evals/cases.json against a running /api/triage endpoint and prints a
+score on the `category` field.
 
+By default it hits your local server:
     uvicorn index:app --reload
-
-Then in another terminal:
-
     python evals/run_eval.py
+
+To test your live Render deployment instead, pass its URL as an argument:
+    python evals/run_eval.py https://your-app-name.onrender.com
 """
 import json
 import sys
 from pathlib import Path
 import urllib.request
 
-ENDPOINT = "http://127.0.0.1:8000/api/triage"
+BASE_URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000"
+ENDPOINT = BASE_URL.rstrip("/") + "/api/triage"
 CASES_PATH = Path(__file__).parent / "cases.json"
 
 
@@ -27,6 +29,7 @@ def call(message: str) -> dict:
 
 
 def main():
+    print(f"Testing endpoint: {ENDPOINT}\n")
     cases = json.loads(CASES_PATH.read_text())
     correct = 0
     failures = []
