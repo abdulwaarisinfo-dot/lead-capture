@@ -2,6 +2,9 @@
 Everything that touches the model lives here: the client, the timeout, the
 retry policy, cost logging, and the parse -> validate -> repair -> quarantine
 loop. The route handler in index.py should never talk to the model directly.
+
+Uses the Anthropic API directly (Claude Haiku 4.5) rather than an
+OpenAI-compatible router.
 """
 import os
 import json
@@ -10,7 +13,8 @@ import random
 import logging
 from pathlib import Path
 
-from openai import OpenAI, APITimeoutError, APIStatusError
+import anthropic
+from anthropic import APITimeoutError, RateLimitError, APIStatusError
 from pydantic import ValidationError
 
 from llm.schema import TriageResult
@@ -24,6 +28,7 @@ COST_LOG_PATH = Path(__file__).parent.parent / "logs" / "cost.jsonl"
 
 TIMEOUT_SECONDS = 30.0
 MAX_RETRIES_ON_TRANSIENT = 2  # timeouts / 429 / 5xx only — never on 400/401/403
+MAX_TOKENS = 300  # this job returns one small JSON object, no need for more
 
 _system_prompt_cache = None
 
@@ -35,10 +40,9 @@ def _load_system_prompt() -> str:
     return _system_prompt_cache
 
 
-def _client() -> OpenAI:
-    return OpenAI(
-        base_url=os.environ["LLM_BASE_URL"],
-        api_key=os.environ["LLM_API_KEY"],
+def _client() -> anthropic.Anthropic:
+    return anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"],
         timeout=TIMEOUT_SECONDS,
         max_retries=0,  # we implement our own retry policy below, not the SDK's
     )
@@ -49,8 +53,8 @@ def _log_cost(usage, duration_ms: float, repaired: bool):
     line = {
         "prompt_version": PROMPT_VERSION,
         "model": os.environ.get("LLM_MODEL"),
-        "input_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
-        "output_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+        "input_tokens": getattr(usage, "input_tokens", None) if usage else None,
+        "output_tokens": getattr(usage, "output_tokens", None) if usage else None,
         "duration_ms": round(duration_ms, 1),
         "repaired": repaired,
     }
@@ -86,7 +90,14 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-def _call_model_once(client: OpenAI, messages: list):
+def _text_from_response(resp) -> str:
+    """Anthropic responses are a list of content blocks; concatenate the
+    text ones. A refusal (stop_reason == 'refusal') has no text block to
+    parse, which surfaces as a clean 'no JSON found' -> repair retry."""
+    return "".join(block.text for block in resp.content if block.type == "text")
+
+
+def _call_model_once(client: anthropic.Anthropic, system_prompt: str, messages: list):
     """One call to the model, with our own retry-on-transient-errors policy
     (timeouts, 429, 5xx). Never retries on 400/401/403 — those will not fix
     themselves."""
@@ -94,17 +105,19 @@ def _call_model_once(client: OpenAI, messages: list):
     for attempt in range(MAX_RETRIES_ON_TRANSIENT + 1):
         try:
             start = time.monotonic()
-            resp = client.chat.completions.create(
+            resp = client.messages.create(
                 model=os.environ["LLM_MODEL"],
-                messages=messages,
+                max_tokens=MAX_TOKENS,
                 temperature=0.2,
+                system=system_prompt,
+                messages=messages,
             )
             duration_ms = (time.monotonic() - start) * 1000
             return resp, duration_ms
-        except APITimeoutError as e:
+        except (APITimeoutError, RateLimitError) as e:
             last_error = e
         except APIStatusError as e:
-            if e.status_code in (429,) or e.status_code >= 500:
+            if e.status_code >= 500:
                 last_error = e
             else:
                 # 400 / 401 / 403 and similar client errors: fail fast, no retry
@@ -121,13 +134,10 @@ def classify_message(message: str) -> TriageResult:
     unrecoverable failure (route turns this into a 422/504)."""
     client = _client()
     system_prompt = _load_system_prompt()
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": message},
-    ]
+    messages = [{"role": "user", "content": message}]
 
-    resp, duration_ms = _call_model_once(client, messages)
-    raw_text = resp.choices[0].message.content
+    resp, duration_ms = _call_model_once(client, system_prompt, messages)
+    raw_text = _text_from_response(resp)
     _log_cost(resp.usage, duration_ms, repaired=False)
 
     try:
@@ -145,8 +155,8 @@ def classify_message(message: str) -> TriageResult:
                 ),
             },
         ]
-        resp2, duration_ms2 = _call_model_once(client, repair_messages)
-        raw_text2 = resp2.choices[0].message.content
+        resp2, duration_ms2 = _call_model_once(client, system_prompt, repair_messages)
+        raw_text2 = _text_from_response(resp2)
         _log_cost(resp2.usage, duration_ms2, repaired=True)
 
         try:
